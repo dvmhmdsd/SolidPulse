@@ -7,10 +7,12 @@
 //   Show            — conditional alert badge
 //   createMemo      — derived alert count
 //   createSignal    — selected sensor id + active filter tab
+//   Portal          — render a toast outside the widget's DOM parent
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createSignal, createMemo, createSelector, For, Index, Show } from 'solid-js'
+import { Portal } from 'solid-js/web'
 import { useRealtimeData } from '@/contexts/RealtimeDataContext'
 import type { Sensor, SensorType } from '@/types/iot'
 
@@ -214,6 +216,36 @@ export function SensorGrid() {
           )}
         </For>
       </div>
+
+      {/* ─── SOLID LESSON: Portal ──────────────────────────────────────────────
+          Portal renders its children into a DIFFERENT DOM node than its
+          position in the component tree. By default it mounts into document.body.
+
+          WHY USE Portal?
+          - The toast needs to be fixed to the viewport corner (position:fixed).
+          - CSS stacking contexts (overflow:hidden, transform, etc.) on ancestor
+            elements can trap fixed/absolute children. Portal escapes this.
+          - The toast is logically "owned" by SensorGrid (it reacts to alertCount)
+            but must live outside the widget card in the DOM.
+
+          ⚠️  REACT COMPARISON:
+               React: ReactDOM.createPortal(<Toast />, document.body)
+               Solid: <Portal mount={document.body}>...</Portal>
+               Solid's Portal is declarative JSX — no imperative DOM call needed.
+
+          The Portal's children ARE still part of Solid's reactive tree —
+          signals, context, effects all work normally inside it.
+      ──────────────────────────────────────────────────────────────────────── */}
+      <Show when={alertCount() > 0}>
+        <Portal mount={document.body}>
+          <div class="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-xl border border-red-800 bg-red-950 px-4 py-2.5 shadow-lg">
+            <span class="text-red-400">⚠</span>
+            <p class="text-sm text-red-300">
+              {alertCount()} sensor{alertCount() > 1 ? 's' : ''} out of range
+            </p>
+          </div>
+        </Portal>
+      </Show>
 
     </div>
   )

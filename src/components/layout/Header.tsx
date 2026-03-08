@@ -1,61 +1,108 @@
 // ─── components/layout/Header.tsx ────────────────────────────────────────────
 //
-// Consumes AppStateContext to:
-//   - Show a theme toggle button (dark ↔ light)
-//   - Show widget visibility toggles
+// SOLID APIS DEMONSTRATED HERE:
+//   use:clickOutside  — custom directive to close dropdown on outside click
+//   use:tooltip       — custom directive for hover tooltip
+//   Show              — conditional dropdown panel
+//   For               — widget toggle buttons
 //
-// SOLID APIS USED:
-//   For    — render the widget toggle buttons
-//   Show   — conditionally show a checkmark on visible widgets
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { For, Show } from 'solid-js'
+import { createSignal, For, Show } from 'solid-js'
 import { useAppState } from '@/contexts/AppStateContext'
+
+// ⚠️  IMPORT RULE: directives MUST be imported even if never called directly.
+//     Solid's compiler transforms `use:clickOutside` to a clickOutside(el, ...)
+//     call — it needs the import to exist in scope.
+// ⚠️  Directive imports MUST exist even though TypeScript can't see them used.
+//     Solid's Vite plugin transforms `use:clickOutside` → clickOutside(el, ...)
+//     at build time, AFTER TypeScript's static analysis runs.
+//     noUnusedLocals fires here because TS never sees the `use:` JSX syntax.
+//     @ts-ignore is the standard Solid community workaround for this.
+// @ts-ignore
+import { clickOutside } from '@/directives/clickOutside'
+// @ts-ignore
+import { tooltip } from '@/directives/tooltip'
+
 
 export function Header() {
   const { state, toggleTheme, toggleWidget } = useAppState()
 
+  // Controls the widget-visibility dropdown
+  const [dropdownOpen, setDropdownOpen] = createSignal(false)
+
   return (
     <header class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 
-      {/* Title block */}
       <div>
         <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
           SolidJS Dashboard
         </h1>
+        <p class="mt-1 text-gray-500 dark:text-gray-400">
+          Phase 6 — directives · Portal · lazy · Dynamic
+        </p>
       </div>
 
-      {/* Controls */}
       <div class="flex flex-wrap items-center gap-2">
 
-        {/* Widget visibility toggles */}
-        <For each={state.widgets}>
-          {(widget) => (
-            <button
-              onClick={() => toggleWidget(widget.id)}
-              class={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                widget.visible
-                  ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20'
-                  : 'border-gray-700 bg-gray-800/50 text-gray-500 hover:border-gray-600 hover:text-gray-400'
-              }`}
-            >
-              {/* Show is perfect here: a small conditional inside a larger render */}
-              <Show when={widget.visible}>
-                <span>✓</span>
-              </Show>
-              {widget.label}
-            </button>
-          )}
-        </For>
+        {/* ─── SOLID LESSON: use:clickOutside ──────────────────────────────
+            `use:clickOutside={handler}` wires the directive to this div.
+            When the user clicks anywhere outside, handler() is called.
+
+            The compiler transforms this to:
+              clickOutside(divElement, () => handler)
+
+            Note: the value is wrapped in an accessor () => handler
+            so the directive can re-read it reactively if it were a signal.
+        ──────────────────────────────────────────────────────────────────── */}
+        <div
+          class="relative"
+          use:clickOutside={() => setDropdownOpen(false)}
+        >
+          {/* ─── use:tooltip — hover tooltip directive ─────────────────────
+              The string value is read by the directive on each mouseenter.
+              If this were a signal: use:tooltip={mySignal()} it would
+              reactively update the tooltip text.
+          ──────────────────────────────────────────────────────────────────── */}
+          <button
+            onClick={() => setDropdownOpen(o => !o)}
+            use:tooltip={'Toggle widget visibility'}
+            class={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              dropdownOpen()
+                ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
+                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-600'
+            }`}
+          >
+            Widgets ▾
+          </button>
+
+          <Show when={dropdownOpen()}>
+            <div class="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+              <For each={state.widgets}>
+                {(widget) => (
+                  <button
+                    onClick={() => toggleWidget(widget.id)}
+                    class={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                      widget.visible
+                        ? 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
+                        : 'text-gray-400 hover:bg-gray-100 dark:text-gray-500 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <span class={`h-1.5 w-1.5 rounded-full ${widget.visible ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
+                    {widget.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
 
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          class="rounded-lg border border-gray-700 bg-gray-800/50 px-3 py-1.5 text-xs font-medium text-gray-400 hover:border-gray-600 hover:text-gray-300 transition-colors"
-          title="Toggle theme"
+          use:tooltip={state.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300 transition-colors dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-600"
         >
-          {/* Reading state.theme subscribes this expression to re-render on change.
-              No memo needed here — it's a single cheap read in JSX. */}
           {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
         </button>
 
