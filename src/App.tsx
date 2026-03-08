@@ -1,127 +1,93 @@
 // ─── App.tsx ──────────────────────────────────────────────────────────────────
 //
-// SOLID APIS DEMONSTRATED HERE:
-//   lazy     — code-split a component (loaded on first render, not at startup)
-//   Dynamic  — render a component stored in a variable/signal
-//   Suspense — loading boundary for lazy components
+// SOLID ROUTER APIS DEMONSTRATED HERE:
+//   Router   — root provider; manages browser history and location state
+//   Route    — declares a URL pattern → component mapping
+//   Outlet   — (via props.children in root) renders the matched child route
 //
-// Provider nesting:
-//   AppStateProvider  — outermost, owns theme + widget visibility
-//   RealtimeDataProvider — owns live metric streams
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { type Component, Show, Suspense, lazy } from 'solid-js'
-import { Dynamic } from 'solid-js/web'
-import { AppStateProvider, useAppState } from '@/contexts/AppStateContext'
+import { type ParentComponent, Suspense } from 'solid-js'
+import { Router, Route } from '@solidjs/router'
+import { AppStateProvider } from '@/contexts/AppStateContext'
 import { RealtimeDataProvider } from '@/contexts/RealtimeDataContext'
+import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
-import { SystemMetricsWidget, NetworkMetricsWidget } from '@/components/widgets/SystemMetricsWidget'
-import { SensorGrid } from '@/components/widgets/SensorGrid'
-import { Skeleton } from '@/components/ui/Skeleton'
+import { DashboardPage } from '@/pages/DashboardPage'
+import { SystemPage } from '@/pages/SystemPage'
+import { CryptoPage } from '@/pages/CryptoPage'
+import { SensorsPage } from '@/pages/SensorsPage'
+import { SensorDetailPage } from '@/pages/SensorDetailPage'
 
-// ─── SOLID LESSON: lazy() ────────────────────────────────────────────────────
+// ─── SOLID ROUTER LESSON: Router + Route ─────────────────────────────────────
 //
-//  lazy(() => import('./Module')) defers loading the module's JS bundle
-//  until the component is first rendered. The chunk is split at build time.
+//  <Router root={Layout}>
+//    <Route path="/path" component={Page} />
+//  </Router>
 //
-//  WHY lazy?
-//  - CryptoWidget imports Chart.js and makes network requests.
-//    Deferring it means the initial JS payload is smaller.
-//  - Useful for widgets hidden by default, modals, route-level pages.
+//  `root` — a layout component rendered for EVERY route. It receives the
+//  matched page as `props.children` (or use <Outlet /> from @solidjs/router).
+//  This replaces wrapping everything in a <Route path="/*"> parent.
 //
-//  lazy() returns a Component that integrates with <Suspense>.
-//  While the dynamic import is in-flight, the nearest Suspense shows its
-//  fallback. Once loaded, it never re-fetches (the module is cached).
+//  Route matching:
+//    - "/sensors"    matches only the exact path (no trailing segment)
+//    - "/sensors/:id" matches "/sensors/s1", "/sensors/s2", etc.
+//    - Solid Router uses specificity — more specific patterns win.
 //
-//  ⚠️  lazy() requires a default export from the target module.
-//      CryptoWidget uses a named export, so we re-wrap it here.
-//
-//  ⚠️  REACT COMPARISON:
-//       React: const Comp = lazy(() => import('./Comp'))  (identical API!)
-//       Solid's lazy() works the same way — same pattern, same mental model.
-// ─────────────────────────────────────────────────────────────────────────────
-const CryptoWidget = lazy(() =>
-  import('@/components/widgets/CryptoWidget').then(m => ({ default: m.CryptoWidget }))
-)
-
-// ─── SOLID LESSON: Dynamic ───────────────────────────────────────────────────
-//
-//  <Dynamic component={SomeComponent} {...props} />
-//  renders whatever component is in the `component` prop.
-//  When `component` changes, the old component unmounts and the new one mounts.
-//
-//  WHY Dynamic?
-//  - Avoids a long if/switch chain when picking between N components.
-//  - The component prop can be a signal — it's reactive.
-//
-//  Here we use it to render 3 of the 4 widgets from a lookup table,
-//  instead of repeating <Show when={...}><Widget /></Show> for each one.
+//  `component=` receives a reference, not JSX. Solid only calls it when the
+//  route is active — non-matching routes render nothing (zero wasted work).
 //
 //  ⚠️  REACT COMPARISON:
-//       React: const Comp = map[key]; return <Comp />
-//       That works in React but loses reactivity if `key` is a signal.
-//       Solid's Dynamic correctly re-renders when `component` changes.
+//       React Router v6: <Route path="/" element={<Page />} />
+//       Solid Router:    <Route path="/" component={Page} />
+//       `element` passes instantiated JSX; `component` passes the class/fn.
+//       Solid's approach is more efficient — the component is never called
+//       for routes that don't match.
+//
 // ─────────────────────────────────────────────────────────────────────────────
-type WidgetComponent = Component
 
-// Map widget ids → components. CryptoWidget is excluded (handled separately
-// with lazy + its own Suspense boundary below).
-const WIDGET_MAP: Record<string, WidgetComponent> = {
-  system:  SystemMetricsWidget,
-  network: NetworkMetricsWidget,
-  sensors: SensorGrid,
-}
-
-// ─── Dashboard ────────────────────────────────────────────────────────────────
-function Dashboard() {
-  const { state } = useAppState()
-
-  return (
-    <div class="min-h-screen bg-gray-100 p-6 dark:bg-gray-950 dark:text-gray-100">
-      <Header />
-
-      <main class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
-        {/* Render system / network / sensors via Dynamic */}
-        <Show when={state.widgets.find(w => w.id === 'system')?.visible}>
-          <Dynamic component={WIDGET_MAP.system} />
-        </Show>
-
-        <Show when={state.widgets.find(w => w.id === 'network')?.visible}>
-          <Dynamic component={WIDGET_MAP.network} />
-        </Show>
-
-        <Show when={state.widgets.find(w => w.id === 'sensors')?.visible}>
-          <Dynamic component={WIDGET_MAP.sensors} />
-        </Show>
-
-        {/* CryptoWidget is lazy — wrap in Suspense for the initial load.
-            The Skeleton shows while the JS chunk downloads.
-            Once loaded, CryptoWidget renders its own internal Suspense
-            for the API data (CoinGecko fetch). */}
-        <Show when={state.widgets.find(w => w.id === 'crypto')?.visible}>
-          <Suspense fallback={
-            <div class="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
-              <p class="mb-4 text-sm font-semibold text-gray-400">Crypto Prices</p>
-              <Skeleton rows={4} />
-            </div>
-          }>
-            <CryptoWidget />
-          </Suspense>
-        </Show>
-
-      </main>
-    </div>
-  )
-}
-
-// ─── Root ─────────────────────────────────────────────────────────────────────
-const App: Component = () => (
+// ─── AppLayout — persistent shell rendered on every route ─────────────────────
+//
+//  Providers live here (inside Router) so all pages can use
+//  useLocation / useNavigate / useParams from @solidjs/router.
+//
+//  When `root=` is used, the Router injects matched page content
+//  as `props.children`. Rendering {props.children} is equivalent to <Outlet />.
+// ─────────────────────────────────────────────────────────────────────────────
+const AppLayout: ParentComponent = (props) => (
   <AppStateProvider>
     <RealtimeDataProvider>
-      <Dashboard />
+      <div class="flex h-screen overflow-hidden bg-gray-100 dark:bg-gray-950">
+
+        {/* Sidebar — present on every route, uses <A> for navigation */}
+        <Sidebar />
+
+        <div class="flex flex-1 flex-col overflow-hidden">
+          {/* Header — uses useLocation() to show the current page title */}
+          <Header />
+
+          {/* Main content area — renders the matched page component.
+              Suspense catches any lazy-loaded chunks within pages. */}
+          <main class="flex-1 overflow-auto p-6">
+            <Suspense>{props.children}</Suspense>
+          </main>
+        </div>
+
+      </div>
     </RealtimeDataProvider>
   </AppStateProvider>
+)
+
+// ─── Route tree ───────────────────────────────────────────────────────────────
+const App = () => (
+  <Router root={AppLayout}>
+    <Route path="/"            component={DashboardPage}    />
+    <Route path="/system"      component={SystemPage}        />
+    <Route path="/crypto"      component={CryptoPage}        />
+    <Route path="/sensors"     component={SensorsPage}       />
+    {/* :id is a dynamic segment — read via useParams().id in SensorDetailPage */}
+    <Route path="/sensors/:id" component={SensorDetailPage}  />
+  </Router>
 )
 
 export default App

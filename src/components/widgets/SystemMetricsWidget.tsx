@@ -1,16 +1,29 @@
 // ─── components/widgets/SystemMetricsWidget.tsx ──────────────────────────────
 //
 // SOLID APIS DEMONSTRATED HERE:
-//   createMemo   — memoized/derived reactive values (like useMemo in React)
-//   Show         — conditional rendering with a reactive condition
-//   For          — keyed list rendering (like .map() but reactive and efficient)
-//   useContext   — (via our custom hook) consuming context
+//   createMemo      — memoized/derived reactive values (like useMemo in React)
+//   createSignal    — local signal for CPU history array
+//   createEffect    — side effect for capturing CPU readings
+//   on()            — explicit dependency tracking inside createEffect
+//   untrack()       — read a signal WITHOUT subscribing (no dependency created)
+//   Show            — conditional rendering with a reactive condition
+//   For             — keyed list rendering (like .map() but reactive and efficient)
+//   useThrottle     — custom hook to downsample a fast-updating signal
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { createMemo, Show, For } from 'solid-js'
-import { useRealtimeData } from '@/contexts/RealtimeDataContext'
-import type { MetricStatus, MetricRow } from '@/types/metrics'
+import {
+  createMemo,
+  createSignal,
+  createEffect,
+  on,
+  untrack,
+  Show,
+  For,
+} from "solid-js";
+import { useRealtimeData } from "@/contexts/RealtimeDataContext";
+import { useThrottle } from "@/hooks/useThrottle";
+import type { MetricStatus, MetricRow } from "@/types/metrics";
 
 // ─── SOLID LESSON: createMemo ─────────────────────────────────────────────────
 //
@@ -37,38 +50,47 @@ import type { MetricStatus, MetricRow } from '@/types/metrics'
 // ─────────────────────────────────────────────────────────────────────────────
 
 function cpuStatus(cpu: number): MetricStatus {
-  if (cpu >= 90) return 'critical'
-  if (cpu >= 70) return 'warning'
-  return 'normal'
+  if (cpu >= 90) return "critical";
+  if (cpu >= 70) return "warning";
+  return "normal";
 }
 
 function memStatus(memory: number): MetricStatus {
-  if (memory >= 85) return 'critical'
-  if (memory >= 70) return 'warning'
-  return 'normal'
+  if (memory >= 85) return "critical";
+  if (memory >= 70) return "warning";
+  return "normal";
 }
 
 const STATUS_COLORS: Record<MetricStatus, string> = {
-  normal:   'bg-emerald-500',
-  warning:  'bg-amber-500',
-  critical: 'bg-red-500',
-}
+  normal: "bg-emerald-500",
+  warning: "bg-amber-500",
+  critical: "bg-red-500",
+};
 
 const STATUS_TEXT: Record<MetricStatus, string> = {
-  normal:   'text-emerald-400',
-  warning:  'text-amber-400',
-  critical: 'text-red-400',
-}
+  normal: "text-emerald-400",
+  warning: "text-amber-400",
+  critical: "text-red-400",
+};
+
+const SPARKLINE_STROKE: Record<MetricStatus, string> = {
+  normal: "#6366f1", // indigo-500
+  warning: "#f59e0b", // amber-500
+  critical: "#ef4444", // red-500
+};
+
+// Maximum number of CPU readings to keep in the sparkline history.
+const MAX_POINTS = 20;
 
 // ─── MetricBar — a single metric row ─────────────────────────────────────────
 // This is a small "dumb" component that receives props and renders a bar.
 // It does NOT access context — data flows in via props, which is ideal for
 // leaf components that are easy to test in isolation.
 interface MetricBarProps {
-  label: string
-  value: number   // 0–100
-  unit: string
-  status: MetricStatus
+  label: string;
+  value: number; // 0–100
+  unit: string;
+  status: MetricStatus;
 }
 
 function MetricBar(props: MetricBarProps) {
@@ -88,7 +110,8 @@ function MetricBar(props: MetricBarProps) {
       <div class="flex items-center justify-between text-sm">
         <span class="text-gray-500 dark:text-gray-400">{props.label}</span>
         <span class={`font-mono font-semibold ${STATUS_TEXT[props.status]}`}>
-          {props.value.toFixed(1)}{props.unit}
+          {props.value.toFixed(1)}
+          {props.unit}
         </span>
       </div>
       <div class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
@@ -98,33 +121,48 @@ function MetricBar(props: MetricBarProps) {
         />
       </div>
     </div>
-  )
+  );
 }
 
 // ─── Shared card shell ────────────────────────────────────────────────────────
 interface CardProps {
-  title: string
-  badge?: string
-  children: any
+  title: string;
+  badge?: string;
+  children: any;
 }
 
 function MetricCard(props: CardProps) {
   return (
     <div class="rounded-xl border border-gray-200 bg-white p-5 space-y-4 dark:border-gray-800 dark:bg-gray-900">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{props.title}</h2>
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+          {props.title}
+        </h2>
         <Show when={props.badge}>
-          <span class="font-mono text-xs text-gray-600">{props.badge}</span>
+          <span class="font-mono text-xs text-gray-600 dark:text-gray-400">
+            {props.badge}
+          </span>
         </Show>
       </div>
       {props.children}
     </div>
-  )
+  );
 }
 
 // ─── SystemMetricsWidget ──────────────────────────────────────────────────────
 export function SystemMetricsWidget() {
-  const { system, updateCount } = useRealtimeData()
+  const { system, updateCount } = useRealtimeData();
+
+  // ─── SOLID LESSON: useThrottle — downsampling a fast signal ──────────────
+  //
+  //  updateCount() fires every 250ms (4× per second). For a tick badge that
+  //  updates at that speed, the display flickers. We throttle it to 1s so it
+  //  reads calmly. Compare SystemMetrics (throttled) vs Network (raw) badge.
+  //
+  //  useThrottle wraps a signal and returns a new signal that only changes
+  //  at most once per interval, absorbing intermediate values.
+  // ──────────────────────────────────────────────────────────────────────────
+  const throttledCount = useThrottle(updateCount, 1000);
 
   // ─── SOLID LESSON: createMemo for derived state ──────────────────────────
   //
@@ -135,24 +173,77 @@ export function SystemMetricsWidget() {
   //  Notice: we call createMemo at the TOP LEVEL of the component (like hooks).
   //  ⚠️  Never call createMemo inside conditions or loops — same rule as React hooks.
   // ──────────────────────────────────────────────────────────────────────────
-  const cpuStat    = createMemo(() => cpuStatus(system.cpu))
-  const memoryStat = createMemo(() => memStatus(system.memory))
+  const cpuStat = createMemo(() => cpuStatus(system.cpu));
+  const memoryStat = createMemo(() => memStatus(system.memory));
 
   // A memo that derives a boolean — drives the Show below.
-  const hasCritical = createMemo(() =>
-    cpuStat() === 'critical' || memoryStat() === 'critical'
-  )
+  const hasCritical = createMemo(
+    () => cpuStat() === "critical" || memoryStat() === "critical",
+  );
 
   // A memo that builds the rows array for the <For> loop.
   const rows = createMemo<MetricRow[]>(() => [
-    { label: 'CPU',    value: system.cpu,    unit: '%' },
-    { label: 'Memory', value: system.memory, unit: '%' },
-    { label: 'Disk',   value: system.disk,   unit: '%' },
-  ])
+    { label: "CPU", value: system.cpu, unit: "%" },
+    { label: "Memory", value: system.memory, unit: "%" },
+    { label: "Disk", value: system.disk, unit: "%" },
+  ]);
+
+  // ─── CPU sparkline history ───────────────────────────────────────────────
+  const [cpuHistory, setCpuHistory] = createSignal<number[]>([]);
+
+  // ─── SOLID LESSON: untrack() ─────────────────────────────────────────────
+  //
+  //  Problem: inside a createEffect (or createMemo), every signal you READ
+  //  automatically becomes a dependency. The effect re-runs when ANY of them
+  //  change. Sometimes you want a signal's current value but DON'T want to
+  //  subscribe to future changes.
+  //
+  //  untrack(fn) executes `fn` in a non-tracking context — any signals read
+  //  inside fn are invisible to the surrounding reactive scope.
+  //
+  //  PRACTICAL EXAMPLE HERE:
+  //    This effect builds CPU history. It should trigger only when system.cpu
+  //    changes (declared via on()). Inside, we also read system.memory —
+  //    but only to capture a snapshot alongside the CPU reading.
+  //    We wrap it in untrack() so memory changes do NOT trigger this effect.
+  //
+  //    Without untrack: effect triggers on BOTH cpu AND memory changes.
+  //    With untrack:    effect triggers ONLY on cpu changes (as intended).
+  //
+  //  When to use untrack():
+  //    - "I need the current value of X for context, but X changing shouldn't
+  //       cause this computation to re-run."
+  //    - Reading config/settings inside a data-driven effect.
+  //    - Reading the previous value of a different signal (without subscribing).
+  //    - Chart updates: trigger on data change, read theme color via untrack.
+  //
+  //  ⚠️  REACT COMPARISON:
+  //       React has no direct equivalent. The closest pattern is using a ref
+  //       (useRef) to hold a value you want to read without it triggering
+  //       useEffect re-runs. Solid's untrack is more explicit.
+  // ──────────────────────────────────────────────────────────────────────────
+  createEffect(
+    on(
+      () => system.cpu, // ← ONLY this triggers the effect
+      (cpu) => {
+        // Read memory WITHOUT creating a subscription.
+        // Memory changes won't cause this effect to re-run.
+        const memSnapshot = untrack(() => system.memory);
+        console.log({ memSnapshot });
+        // In a real app, _memSnapshot could be used for:
+        //   - Logging: "CPU spike to X% when memory was Y%"
+        //   - Alerting: combined threshold checks
+        //   - Analytics: co-occur sampling
+        // Here it just demonstrates the untrack pattern.
+
+        setCpuHistory((h) => [...h.slice(-(MAX_POINTS - 1)), cpu]);
+      },
+      { defer: true },
+    ),
+  );
 
   return (
-    <MetricCard title="System" badge={`tick #${updateCount()}`}>
-
+    <MetricCard title="System" badge={`tick #${throttledCount()} ↓1s`}>
       {/* ─── SOLID LESSON: Show ─────────────────────────────────────────────
           Show renders its children only when `when` is truthy.
           It is Solid's preferred way to do conditional rendering.
@@ -201,34 +292,92 @@ export function SystemMetricsWidget() {
               label={row.label}
               value={row.value}
               unit={row.unit}
-              status={row.label === 'CPU' ? cpuStat() : row.label === 'Memory' ? memoryStat() : 'normal'}
+              status={
+                row.label === "CPU"
+                  ? cpuStat()
+                  : row.label === "Memory"
+                    ? memoryStat()
+                    : "normal"
+              }
+            />
+          )}
+        </For>
+      </div>
+
+      {/* ─── CPU Sparkline ──────────────────────────────────────────────────
+          Renders the last MAX_POINTS CPU readings as an SVG polyline.
+          Data is captured by the createEffect(on(...)) above, which uses
+          untrack() to read memory without subscribing.
+
+          The stroke color reacts to cpuStat() — the memo already handles
+          re-rendering when status changes. No untrack needed here because
+          we WANT the color to update when the status changes.
+      ──────────────────────────────────────────────────────────────────────── */}
+      <Show when={cpuHistory().length > 1}>
+        <div class="border-t border-gray-100 pt-3 dark:border-gray-800">
+          <p class="mb-1.5 text-xs text-gray-400">
+            CPU trend (last {cpuHistory().length} samples)
+          </p>
+          <svg
+            class="h-8 w-full"
+            viewBox={`0 0 ${MAX_POINTS - 1} 100`}
+            preserveAspectRatio="none"
+          >
+            <polyline
+              fill="none"
+              stroke={SPARKLINE_STROKE[cpuStat()]}
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              points={cpuHistory()
+                .map((v, i) => `${i},${100 - v}`)
+                .join(" ")}
+            />
+          </svg>
+        </div>
+      </Show>
+    </MetricCard>
+  );
+}
+
+// ─── NetworkMetricsWidget ─────────────────────────────────────────────────────
+export function NetworkMetricsWidget() {
+  const { network, updateCount } = useRealtimeData();
+
+  // Raw updateCount (no throttle) — compare with SystemMetrics which uses
+  // useThrottle. The badge here flickers every 250ms; SystemMetrics updates ~1s.
+  const rows = createMemo<MetricRow[]>(() => [
+    {
+      label: "Download",
+      value: (network.download / 200) * 100,
+      unit: ` ${network.download.toFixed(0)} Mbps`,
+    },
+    {
+      label: "Upload",
+      value: (network.upload / 100) * 100,
+      unit: ` ${network.upload.toFixed(0)} Mbps`,
+    },
+    {
+      label: "Latency",
+      value: Math.min(100, (network.latency / 200) * 100),
+      unit: ` ${network.latency.toFixed(0)} ms`,
+    },
+  ]);
+
+  return (
+    <MetricCard title="Network" badge={`tick #${updateCount()} raw`}>
+      <div class="space-y-3">
+        <For each={rows()}>
+          {(row) => (
+            <MetricBar
+              label={row.label}
+              value={row.value}
+              unit={row.unit}
+              status="normal"
             />
           )}
         </For>
       </div>
     </MetricCard>
-  )
-}
-
-// ─── NetworkMetricsWidget ─────────────────────────────────────────────────────
-export function NetworkMetricsWidget() {
-  const { network, updateCount } = useRealtimeData()
-
-  const rows = createMemo<MetricRow[]>(() => [
-    { label: 'Download', value: (network.download / 200) * 100, unit: ` ${network.download.toFixed(0)} Mbps` },
-    { label: 'Upload',   value: (network.upload / 100) * 100,   unit: ` ${network.upload.toFixed(0)} Mbps` },
-    { label: 'Latency',  value: Math.min(100, (network.latency / 200) * 100), unit: ` ${network.latency.toFixed(0)} ms` },
-  ])
-
-  return (
-    <MetricCard title="Network" badge={`tick #${updateCount()}`}>
-      <div class="space-y-3">
-        <For each={rows()}>
-          {(row) => (
-            <MetricBar label={row.label} value={row.value} unit={row.unit} status="normal" />
-          )}
-        </For>
-      </div>
-    </MetricCard>
-  )
+  );
 }

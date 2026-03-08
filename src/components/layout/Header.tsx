@@ -1,112 +1,74 @@
 // ─── components/layout/Header.tsx ────────────────────────────────────────────
 //
-// SOLID APIS DEMONSTRATED HERE:
-//   use:clickOutside  — custom directive to close dropdown on outside click
-//   use:tooltip       — custom directive for hover tooltip
-//   Show              — conditional dropdown panel
-//   For               — widget toggle buttons
+// SOLID ROUTER APIS DEMONSTRATED HERE:
+//   useLocation — reactive access to the current URL pathname
+//
+// OTHER SOLID APIS:
+//   use:tooltip — custom directive for hover tooltips
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { createSignal, For, Show } from 'solid-js'
+import { useLocation } from '@solidjs/router'
 import { useAppState } from '@/contexts/AppStateContext'
-
-// ⚠️  IMPORT RULE: directives MUST be imported even if never called directly.
-//     Solid's compiler transforms `use:clickOutside` to a clickOutside(el, ...)
-//     call — it needs the import to exist in scope.
-// ⚠️  Directive imports MUST exist even though TypeScript can't see them used.
-//     Solid's Vite plugin transforms `use:clickOutside` → clickOutside(el, ...)
-//     at build time, AFTER TypeScript's static analysis runs.
-//     noUnusedLocals fires here because TS never sees the `use:` JSX syntax.
-//     @ts-ignore is the standard Solid community workaround for this.
-// @ts-ignore
-import { clickOutside } from '@/directives/clickOutside'
 // @ts-ignore
 import { tooltip } from '@/directives/tooltip'
 
+// ─── SOLID ROUTER LESSON: useLocation ───────────────────────────────────────
+//
+//  useLocation() returns a reactive Location object with:
+//    pathname  — path portion of the URL (e.g. "/sensors/s3")
+//    search    — query string (e.g. "?tab=temperature")
+//    hash      — hash fragment
+//    state     — state passed via navigate(path, { state })
+//    key       — unique key for this history entry
+//
+//  All properties are reactive. Reading location.pathname inside JSX
+//  subscribes to URL changes — no useEffect needed.
+//
+//  Here we derive the page title from the URL and display it in the header.
+//  The title updates automatically on every navigation.
+//
+//  ⚠️  REACT COMPARISON:
+//       React Router: const { pathname } = useLocation() — NOT reactive
+//                     You need useEffect([pathname]) to respond to changes.
+//       Solid Router: reading location.pathname IS the subscription.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROUTE_TITLES: Record<string, string> = {
+  '/':        'Dashboard',
+  '/system':  'System Metrics',
+  '/crypto':  'Crypto Prices',
+  '/sensors': 'IoT Sensors',
+}
+
+function getTitle(pathname: string): string {
+  if (ROUTE_TITLES[pathname]) return ROUTE_TITLES[pathname]
+  if (pathname.startsWith('/sensors/')) return 'Sensor Detail'
+  return 'SolidJS Dashboard'
+}
 
 export function Header() {
-  const { state, toggleTheme, toggleWidget } = useAppState()
-
-  // Controls the widget-visibility dropdown
-  const [dropdownOpen, setDropdownOpen] = createSignal(false)
+  const { state, toggleTheme } = useAppState()
+  const location = useLocation()
 
   return (
-    <header class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <header class="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 dark:border-gray-800 dark:bg-gray-900">
 
-      <div>
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-          SolidJS Dashboard
-        </h1>
-        <p class="mt-1 text-gray-500 dark:text-gray-400">
-          Phase 6 — directives · Portal · lazy · Dynamic
-        </p>
-      </div>
+      {/* Page title — derived from location.pathname (reactive, no effect needed) */}
+      <h1 class="text-sm font-semibold text-gray-900 dark:text-white">
+        {getTitle(location.pathname)}
+      </h1>
 
-      <div class="flex flex-wrap items-center gap-2">
+      {/* Theme toggle */}
+      <button
+        onClick={toggleTheme}
+        use:tooltip={state.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-gray-300 dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-600"
+      >
+        {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
+      </button>
 
-        {/* ─── SOLID LESSON: use:clickOutside ──────────────────────────────
-            `use:clickOutside={handler}` wires the directive to this div.
-            When the user clicks anywhere outside, handler() is called.
-
-            The compiler transforms this to:
-              clickOutside(divElement, () => handler)
-
-            Note: the value is wrapped in an accessor () => handler
-            so the directive can re-read it reactively if it were a signal.
-        ──────────────────────────────────────────────────────────────────── */}
-        <div
-          class="relative"
-          use:clickOutside={() => setDropdownOpen(false)}
-        >
-          {/* ─── use:tooltip — hover tooltip directive ─────────────────────
-              The string value is read by the directive on each mouseenter.
-              If this were a signal: use:tooltip={mySignal()} it would
-              reactively update the tooltip text.
-          ──────────────────────────────────────────────────────────────────── */}
-          <button
-            onClick={() => setDropdownOpen(o => !o)}
-            use:tooltip={'Toggle widget visibility'}
-            class={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-              dropdownOpen()
-                ? 'border-indigo-500 bg-indigo-500/10 text-indigo-400'
-                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-600'
-            }`}
-          >
-            Widgets ▾
-          </button>
-
-          <Show when={dropdownOpen()}>
-            <div class="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-gray-200 bg-white p-1.5 shadow-lg dark:border-gray-700 dark:bg-gray-800">
-              <For each={state.widgets}>
-                {(widget) => (
-                  <button
-                    onClick={() => toggleWidget(widget.id)}
-                    class={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${
-                      widget.visible
-                        ? 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
-                        : 'text-gray-400 hover:bg-gray-100 dark:text-gray-500 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    <span class={`h-1.5 w-1.5 rounded-full ${widget.visible ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'}`} />
-                    {widget.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-
-        {/* Theme toggle */}
-        <button
-          onClick={toggleTheme}
-          use:tooltip={state.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          class="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300 transition-colors dark:border-gray-700 dark:bg-transparent dark:text-gray-400 dark:hover:border-gray-600"
-        >
-          {state.theme === 'dark' ? '☀ Light' : '☾ Dark'}
-        </button>
-
-      </div>
     </header>
   )
 }

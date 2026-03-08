@@ -6,12 +6,15 @@
 //   Index           — static-length list rendering (tab bar)
 //   Show            — conditional alert badge
 //   createMemo      — derived alert count
-//   createSignal    — selected sensor id + active filter tab
+//   createSignal    — selected sensor id + active filter tab + search query
 //   Portal          — render a toast outside the widget's DOM parent
+//   useDebounce     — custom hook: debounce the search input signal
 //
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createSignal, createMemo, createSelector, For, Index, Show } from 'solid-js'
+import { A } from '@solidjs/router'
+import { useDebounce } from '@/hooks/useDebounce'
 import { Portal } from 'solid-js/web'
 import { useRealtimeData } from '@/contexts/RealtimeDataContext'
 import type { Sensor, SensorType } from '@/types/iot'
@@ -97,35 +100,53 @@ interface SensorCardProps {
 function SensorCard(props: SensorCardProps) {
   const alert = () => isOutOfRange(props.sensor)
 
+  // Card is split into two interactive areas:
+  //   1. The main body — a <button> for in-page selection (createSelector demo)
+  //   2. The footer row — an <A> link for navigating to the detail page
+  //
+  // Separating them into siblings (not nested) keeps HTML valid:
+  // interactive elements (<button>, <a>) must not be nested inside each other.
   return (
-    <button
-      onClick={props.onSelect}
-      class={`w-full text-left rounded-lg border p-3 transition-colors ${
-        props.selected
-          ? 'border-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/10'
-          : 'border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-600'
-      }`}
-    >
-      <div class="flex items-start justify-between gap-2">
-        <div class="min-w-0">
-          <p class="truncate text-xs font-medium text-gray-700 dark:text-gray-300">
-            {props.sensor.name}
-          </p>
-          <p class={`mt-0.5 font-mono text-lg font-semibold ${
-            alert() ? 'text-red-500' : 'text-gray-900 dark:text-white'
-          }`}>
-            {formatValue(props.sensor)}
-          </p>
+    <div class={`rounded-lg border transition-colors ${
+      props.selected
+        ? 'border-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/10'
+        : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/50'
+    }`}>
+
+      {/* Selectable body */}
+      <button
+        onClick={props.onSelect}
+        class="w-full text-left p-3"
+      >
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="truncate text-xs font-medium text-gray-700 dark:text-gray-300">
+              {props.sensor.name}
+            </p>
+            <p class={`mt-0.5 font-mono text-lg font-semibold ${
+              alert() ? 'text-red-500' : 'text-gray-900 dark:text-white'
+            }`}>
+              {formatValue(props.sensor)}
+            </p>
+          </div>
+          {/* Show renders the alert badge only when the sensor is out of range.
+              It re-renders independently of the parent card. */}
+          <Show when={alert()}>
+            <span class="mt-0.5 shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-xs font-semibold text-red-500">!</span>
+          </Show>
         </div>
-        {/* Show renders the alert badge only when the sensor is out of range.
-            It re-renders independently of the parent card. */}
-        <Show when={alert()}>
-          <span class="mt-0.5 shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-xs font-semibold text-red-500">
-            !</span>
-        </Show>
-      </div>
-      <p class="mt-1 text-xs text-gray-400 capitalize">{props.sensor.type}</p>
-    </button>
+        <p class="mt-1 text-xs text-gray-400 capitalize">{props.sensor.type}</p>
+      </button>
+
+      {/* Full-width detail link — easy to tap, sibling to the button (valid HTML) */}
+      <A
+        href={`/sensors/${props.sensor.id}`}
+        class="flex w-full items-center justify-center gap-1 border-t border-gray-100 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-50 hover:text-indigo-500 dark:border-gray-700/50 dark:hover:bg-gray-700/30 dark:hover:text-indigo-400"
+      >
+        View details →
+      </A>
+
+    </div>
   )
 }
 
@@ -136,16 +157,36 @@ export function SensorGrid() {
   const [selectedId, setSelectedId] = createSignal<string | null>(null)
   const [activeTab, setActiveTab]   = createSignal<FilterTab>('all')
 
+  // ─── SOLID LESSON: useDebounce applied ───────────────────────────────────
+  //
+  //  `searchQuery` updates on every keystroke (potentially dozens per second).
+  //  We don't want to re-filter the sensor list on EVERY keystroke — especially
+  //  if the list were large or the filter expensive.
+  //
+  //  useDebounce(signal, delay) returns a NEW signal that only updates after
+  //  the source has been stable for `delay` ms. The filter memo below reads
+  //  `debouncedQuery()` — so it only re-runs 300ms after the user stops typing.
+  //
+  //  This is a classic "input → debounce → search/filter" pipeline.
+  //  The raw signal feeds the <input> value (for controlled input),
+  //  the debounced signal feeds the expensive computation.
+  // ──────────────────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = createSignal('')
+  const debouncedQuery = useDebounce(searchQuery, 300)
+
   // createSelector — the key optimization for list selection.
   // isSelected(id) returns true only for the currently selected id.
   // Each SensorCard subscribes only to changes that affect its own id.
   const isSelected = createSelector(selectedId)
 
-  // Derived memo: filter sensors by active tab.
-  // Re-runs only when activeTab() changes or sensors array changes.
+  // Derived memo: filter sensors by active tab AND debounced search query.
+  // Re-runs only when activeTab(), debouncedQuery(), or sensors array changes.
+  // Note: debouncedQuery() — NOT searchQuery() — so typing doesn't thrash this.
   const visibleSensors = createMemo(() => {
-    const tab = activeTab()
-    return tab === 'all' ? sensors : sensors.filter(s => s.type === tab)
+    const tab   = activeTab()
+    const query = debouncedQuery().toLowerCase().trim()
+    const byType = tab === 'all' ? sensors : sensors.filter(s => s.type === tab)
+    return query ? byType.filter(s => s.name.toLowerCase().includes(query)) : byType
   })
 
   // Derived memo: count out-of-range sensors for the badge.
@@ -165,6 +206,26 @@ export function SensorGrid() {
           </span>
         </Show>
       </div>
+
+      {/* ─── Search input — useDebounce in action ──────────────────────────
+          The <input> is a "controlled" input: value={searchQuery()} keeps it
+          in sync with the signal. onInput fires on every keystroke and updates
+          `searchQuery` immediately (for responsive cursor feedback).
+
+          But `visibleSensors` reads `debouncedQuery()` — which only updates
+          300ms after the user stops typing. The filter computation is decoupled
+          from the raw keypress rate.
+
+          In Solid, controlled inputs use `value` + `onInput` (not onChange).
+          `e.currentTarget.value` gives the latest typed string.
+      ──────────────────────────────────────────────────────────────────────── */}
+      <input
+        type="text"
+        value={searchQuery()}
+        onInput={(e) => setSearchQuery(e.currentTarget.value)}
+        placeholder="Search sensors…"
+        class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-700 placeholder-gray-400 focus:border-indigo-400 focus:outline-none dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-300 dark:placeholder-gray-500"
+      />
 
       {/* ─── SOLID LESSON: Index for the tab bar ───────────────────────────
           TABS is a plain array constant — it never changes length or order.
