@@ -1,22 +1,37 @@
-// App.tsx — Root component
-// Phase 1: Minimal shell. Providers and widgets will be added incrementally.
+// ─── App.tsx ─────────────────────────────────────────────────────────────────
+//
+// Root component. Its job is to:
+//   1. Wrap the tree in context providers (data available to all descendants)
+//   2. Compose the page layout
+//
+// As we add phases, more providers and widgets will be added here.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import type { Component } from 'solid-js'
+import { RealtimeDataProvider } from '@/contexts/RealtimeDataContext'
+import { SystemMetricsWidget } from '@/components/widgets/SystemMetricsWidget'
 
 const App: Component = () => {
   return (
-    <div class="min-h-screen bg-gray-950 text-gray-100 p-6">
-      <header class="mb-8">
-        <h1 class="text-3xl font-bold text-white">SolidJS Dashboard</h1>
-        <p class="text-gray-400 mt-1">Learning SolidJS fine-grained reactivity</p>
-      </header>
+    // RealtimeDataProvider owns the interval and shared state.
+    // Everything inside it can call useRealtimeData().
+    <RealtimeDataProvider>
+      <div class="min-h-screen bg-gray-950 text-gray-100 p-6">
 
-      <main class="grid gap-4">
-        {/* Widgets will be added here in later phases */}
-        <div class="rounded-xl border border-gray-800 bg-gray-900 p-6 text-center text-gray-500">
-          Phase 1 complete — foundation is ready. Next: add contexts &amp; widgets.
-        </div>
-      </main>
-    </div>
+        <header class="mb-8">
+          <h1 class="text-3xl font-bold text-white">SolidJS Dashboard</h1>
+          <p class="text-gray-400 mt-1">
+            Phase 2 — createSignal · createStore · createMemo · batch · Show · For
+          </p>
+        </header>
+
+        <main class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <SystemMetricsWidget />
+          {/* More widgets will be added in later phases */}
+        </main>
+
+      </div>
+    </RealtimeDataProvider>
   )
 }
 
