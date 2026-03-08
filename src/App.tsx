@@ -14,6 +14,7 @@ import { RealtimeDataProvider } from '@/contexts/RealtimeDataContext'
 import { Header } from '@/components/layout/Header'
 import { SystemMetricsWidget, NetworkMetricsWidget } from '@/components/widgets/SystemMetricsWidget'
 import { CryptoWidget } from '@/components/widgets/CryptoWidget'
+import { SensorGrid } from '@/components/widgets/SensorGrid'
 
 // ─── Dashboard — inner component (has access to both contexts) ────────────────
 // Separated from App so we can call useAppState() inside the provider tree.
@@ -54,6 +55,10 @@ function Dashboard() {
 
         <Show when={state.widgets.find(w => w.id === 'crypto')?.visible}>
           <CryptoWidget />
+        </Show>
+
+        <Show when={state.widgets.find(w => w.id === 'sensors')?.visible}>
+          <SensorGrid />
         </Show>
 
       </main>

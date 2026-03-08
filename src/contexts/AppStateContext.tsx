@@ -74,6 +74,7 @@ const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'system',  label: 'System Metrics', visible: true },
   { id: 'network', label: 'Network',        visible: true },
   { id: 'crypto',  label: 'Crypto Prices',  visible: true },
+  { id: 'sensors', label: 'IoT Sensors',    visible: true },
 ]
 
 // ─── Provider ─────────────────────────────────────────────────────────────────

@@ -28,12 +28,14 @@ import {
 // solid-js/store contains: createStore, produce, reconcile (covered in Phase 4)
 import { createStore } from 'solid-js/store'
 import type { SystemMetrics, NetworkMetrics } from '@/types/metrics'
+import type { Sensor } from '@/types/iot'
 import {
   initialSystemMetrics,
   initialNetworkMetrics,
   nextSystemMetrics,
   nextNetworkMetrics,
 } from '@/services/simulators/systemMetrics'
+import { INITIAL_SENSORS, nextSensorValues } from '@/services/simulators/iotSensors'
 
 // ─── SOLID LESSON: createSignal vs createStore ───────────────────────────────
 //
@@ -61,11 +63,9 @@ import {
 
 // ─── Context value type ───────────────────────────────────────────────────────
 interface RealtimeDataContextValue {
-  // System metrics as a Store (independently reactive properties)
-  system: SystemMetrics
-  // Network metrics as a Store
-  network: NetworkMetrics
-  // How many simulation ticks have run (a Signal — single number)
+  system:      SystemMetrics
+  network:     NetworkMetrics
+  sensors:     Sensor[]        // Store array — createSelector in SensorGrid tracks this
   updateCount: () => number
 }
 
@@ -82,8 +82,10 @@ export const RealtimeDataProvider: ParentComponent = (props) => {
   // `store` is a Proxy — reading store.cpu subscribes only to `cpu`.
   const [system, setSystem] = createStore<SystemMetrics>(initialSystemMetrics)
   const [network, setNetwork] = createStore<NetworkMetrics>(initialNetworkMetrics)
+  // Sensors stored as an array in a store — reconcile() will update it efficiently.
+  // createSelector in SensorGrid will ensure only changed rows re-render.
+  const [sensors, setSensors] = createStore<Sensor[]>(INITIAL_SENSORS)
 
-  // createSignal for a primitive counter — no need for a store here.
   const [updateCount, setUpdateCount] = createSignal(0)
 
   // ─── SOLID LESSON: batch() ─────────────────────────────────────────────────
@@ -109,6 +111,7 @@ export const RealtimeDataProvider: ParentComponent = (props) => {
       // OR use produce() for complex nested mutations (covered in Phase 4)
       setSystem(nextSystemMetrics(system))
       setNetwork(nextNetworkMetrics(network))
+      setSensors(nextSensorValues(sensors))
       setUpdateCount(n => n + 1)
     })
   }
@@ -138,6 +141,7 @@ export const RealtimeDataProvider: ParentComponent = (props) => {
   const value: RealtimeDataContextValue = {
     system,
     network,
+    sensors,
     updateCount,
   }
 
