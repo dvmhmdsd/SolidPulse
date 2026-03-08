@@ -80,7 +80,7 @@ const AppLayout: ParentComponent = (props) => (
 
 // ─── Route tree ───────────────────────────────────────────────────────────────
 const App = () => (
-  <Router root={AppLayout}>
+  <Router root={AppLayout} base="/SolidPulse">
     <Route path="/"            component={DashboardPage}    />
     <Route path="/system"      component={SystemPage}        />
     <Route path="/crypto"      component={CryptoPage}        />
