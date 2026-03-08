@@ -86,12 +86,12 @@ function MetricBar(props: MetricBarProps) {
   return (
     <div class="space-y-1">
       <div class="flex items-center justify-between text-sm">
-        <span class="text-gray-400">{props.label}</span>
+        <span class="text-gray-500 dark:text-gray-400">{props.label}</span>
         <span class={`font-mono font-semibold ${STATUS_TEXT[props.status]}`}>
           {props.value.toFixed(1)}{props.unit}
         </span>
       </div>
-      <div class="h-2 w-full rounded-full bg-gray-700">
+      <div class="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
         <div
           class={`h-2 rounded-full transition-all duration-200 ${STATUS_COLORS[props.status]}`}
           style={{ width: `${Math.min(100, props.value)}%` }}
@@ -110,9 +110,9 @@ interface CardProps {
 
 function MetricCard(props: CardProps) {
   return (
-    <div class="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-4">
+    <div class="rounded-xl border border-gray-200 bg-white p-5 space-y-4 dark:border-gray-800 dark:bg-gray-900">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">{props.title}</h2>
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{props.title}</h2>
         <Show when={props.badge}>
           <span class="font-mono text-xs text-gray-600">{props.badge}</span>
         </Show>
