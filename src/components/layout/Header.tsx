@@ -45,7 +45,7 @@ const ROUTE_TITLES: Record<string, string> = {
 function getTitle(pathname: string): string {
   if (ROUTE_TITLES[pathname]) return ROUTE_TITLES[pathname]
   if (pathname.startsWith('/sensors/')) return 'Sensor Detail'
-  return 'SolidJS Dashboard'
+  return 'SolidPulse'
 }
 
 export function Header() {

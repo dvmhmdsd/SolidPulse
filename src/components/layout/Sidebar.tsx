@@ -71,7 +71,7 @@ export function Sidebar() {
       <div class="flex h-14 items-center justify-center border-b border-gray-200 px-3 dark:border-gray-800 sm:justify-start">
         <span class="text-lg font-bold text-indigo-500">◈</span>
         <span class="ml-2 hidden text-sm font-semibold text-gray-900 dark:text-white sm:block">
-          SolidJS
+          SolidPulse
         </span>
       </div>
 
