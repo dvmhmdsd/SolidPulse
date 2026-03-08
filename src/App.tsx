@@ -9,7 +9,7 @@
 
 import type { Component } from 'solid-js'
 import { RealtimeDataProvider } from '@/contexts/RealtimeDataContext'
-import { SystemMetricsWidget } from '@/components/widgets/SystemMetricsWidget'
+import { SystemMetricsWidget, NetworkMetricsWidget } from '@/components/widgets/SystemMetricsWidget'
 
 const App: Component = () => {
   return (
@@ -27,6 +27,7 @@ const App: Component = () => {
 
         <main class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <SystemMetricsWidget />
+          <NetworkMetricsWidget />
           {/* More widgets will be added in later phases */}
         </main>
 
